@@ -2,15 +2,16 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\SendStatementsJob as SendStatementsJob;
 use Illuminate\Console\Command;
 
-class SendStatements extends Command
+class SendStatementsCommand extends Command
 {
     protected $signature = 'statements:send';
 
     public function handle(): int
     {
-        \App\Jobs\SendStatements::dispatch();
+        SendStatementsJob::dispatch();
 
         return Command::SUCCESS;
     }

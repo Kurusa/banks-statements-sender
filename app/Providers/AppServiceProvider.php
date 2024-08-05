@@ -6,6 +6,7 @@ use App\Services\MonoApiService;
 use App\Services\PrivatApiService;
 use GuzzleHttp\Client;
 use Illuminate\Support\ServiceProvider;
+use TelegramBot\Api\BotApi;
 use TelegramBot\Api\Client as TelegramBotClient;
 
 class AppServiceProvider extends ServiceProvider
@@ -21,7 +22,11 @@ class AppServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(TelegramBotClient::class, function () {
-            return new TelegramBotClient(config('telegram.token'));
+            return new BotApi(config('telegram.token'));
+        });
+
+        $this->app->singleton(BotApi::class, function () {
+            return new BotApi(config('telegram.token'));
         });
     }
 

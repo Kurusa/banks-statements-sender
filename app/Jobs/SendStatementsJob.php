@@ -14,24 +14,23 @@ use Illuminate\Queue\SerializesModels;
 use TelegramBot\Api\BotApi;
 use TelegramBot\Api\Exception;
 
-class SendStatements
+class SendStatementsJob
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     private PrivatApiService $privatApiService;
-
     private MonoApiService $monoApiService;
+    private BotApi $bot;
 
-    protected $bot;
-
-    public function handle(
-        PrivatApiService $privatApiService,
-        MonoApiService   $monoApiService
-    ): void
+    public function __construct(PrivatApiService $privatApiService, MonoApiService $monoApiService, BotApi $bot)
     {
         $this->privatApiService = $privatApiService;
         $this->monoApiService = $monoApiService;
+        $this->bot = $bot;
+    }
 
+    public function handle(): void
+    {
         if ($this->shouldSendStatements()) {
             foreach (config('cards') as $card) {
                 $this->processStatements($card);
@@ -42,7 +41,6 @@ class SendStatements
     private function shouldSendStatements(): bool
     {
         $now = Carbon::now()->setTimezone('Europe/Kiev');
-
         return $now->hour === 8 && $now->minute === 0;
     }
 
@@ -59,16 +57,7 @@ class SendStatements
     private function calculateEarnings(array $card): float
     {
         $earnings = 0;
-        $statements = [];
-
-        switch ($card['type']) {
-            case BankProvider::MONO:
-                $statements = $this->getMonoStatements($card['id'], $card['token']);
-                break;
-            case BankProvider::PRIVAT:
-                $statements = $this->getPrivatStatements($card['id'], $card['token']);
-                break;
-        }
+        $statements = $this->getStatementsByBankProvider($card);
 
         foreach ($statements as $statement) {
             if ($this->isValidEarning($card['type'], $statement)) {
@@ -79,34 +68,39 @@ class SendStatements
         return $earnings;
     }
 
+    private function getStatementsByBankProvider(array $card): array
+    {
+        return match ($card['type']) {
+            BankProvider::MONO => $this->getMonoStatements($card['id'], $card['token']),
+            BankProvider::PRIVAT => $this->getPrivatStatements($card['id'], $card['token']),
+            default => [],
+        };
+    }
+
     private function isValidEarning(BankProvider $bankProvider, array $statement): bool
     {
-        if ($bankProvider === BankProvider::MONO) {
-            return ! str_starts_with($statement['operationAmount'], '-');
-        } elseif ($bankProvider === BankProvider::PRIVAT) {
-            return $statement['TRANTYPE'] == 'C';
-        }
-
-        return false;
+        return match ($bankProvider) {
+            BankProvider::MONO => !str_starts_with($statement['operationAmount'], '-'),
+            BankProvider::PRIVAT => $statement['TRANTYPE'] === 'C',
+        };
     }
 
     private function getEarningAmount(BankProvider $type, array $statement): float
     {
-        if ($type === BankProvider::MONO) {
-            return intval($statement['operationAmount']) / 100;
-        } elseif ($type === BankProvider::PRIVAT) {
-            return floatval($statement['SUM_E']);
-        }
-
-        return 0;
+        return match ($type) {
+            BankProvider::MONO => intval($statement['operationAmount']) / 100,
+            BankProvider::PRIVAT => floatval($statement['SUM_E']),
+        };
     }
 
     private function sendEarningsToUsers(string $earnings, string $name): void
     {
+        $authorizedUsers = User::authorizedUsers()->get();
+
         /** @var User $user */
-        foreach (User::authorizedUsers()->get() as $user) {
+        foreach ($authorizedUsers as $user) {
             try {
-                $this->getBot()->sendMessage($user->chat_id, $earnings . ' ' . $name . ' ' . Carbon::now()->subDay()->format('d.m.Y'));
+                $this->bot->sendMessage($user->chat_id, "$earnings $name " . Carbon::now()->subDay()->format('d.m.Y'));
             } catch (Exception $e) {
             }
         }
@@ -131,14 +125,5 @@ class SendStatements
         ]);
 
         return $statements['transactions'] ?? [];
-    }
-
-    public function getBot(): BotApi
-    {
-        if (! $this->bot) {
-            $this->bot = new BotApi(config('telegram.token'));
-        }
-
-        return $this->bot;
     }
 }

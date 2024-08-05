@@ -7,14 +7,13 @@ use GuzzleHttp\Client;
 class PrivatApiService
 {
     private const API_URL = 'https://acp.privatbank.ua/api';
-
     private const STATEMENT_ENDPOINT = '/statements/transactions';
 
     public function __construct(readonly private Client $client)
     {
     }
 
-    public function getStatements(string $token, array $params = [])
+    public function getStatements(string $token, array $params = []): array
     {
         $response = $this->client->get($this->buildUri(), [
             'headers' => [
